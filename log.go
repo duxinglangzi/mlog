@@ -88,8 +88,7 @@ func NewLogger(config *LoggerConfiguration) *Logger {
 	
 	// 控制台输出
 	cores = append(cores, zapcore.NewCore(makeEncoder(true), zapcore.Lock(os.Stderr), zapcore.DebugLevel))
-	
-	
+
 	// 单独设置 console 的日志文件
 	if config.EnableConsole && len(config.ConsoleFile) > 0 {
 		logs, _ := rotatelogs.New(strings.Replace(config.ConsoleFile, ".log", "", -1) + "-%Y%m%d.log")
