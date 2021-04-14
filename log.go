@@ -4,13 +4,14 @@
 package mlog
 
 import (
-	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
+	"github.com/lestrrat-go/file-rotatelogs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"io"
 	"log"
 	"os"
 	"strings"
+	"time"
 )
 
 const (
@@ -41,6 +42,15 @@ type LoggerConfiguration struct {
 	EnableConsole   bool
 	ConsoleFile     string
 	FileLevelConfig map[string]string
+	
+	InfoLevelFiles  *[]string
+	WarnLevelFiles  *[]string
+	ErrorLevelFiles *[]string
+	DebugLevelFiles *[]string
+	
+	// 日志保留天数 默认7天
+	MaxHistoryDays *uint
+	
 	// ConsoleLevel    string
 	// ConsoleJson     bool
 	// EnableFile      bool
@@ -85,23 +95,30 @@ func NewLogger(config *LoggerConfiguration) *Logger {
 		// consoleLevel: zap.NewAtomicLevelAt(getZapLevel(config.ConsoleLevel)),
 		// fileLevel:    zap.NewAtomicLevelAt(getZapLevel(config.FileLevel)),
 	}
+	// 增加日志保留天数控制
+	var options []rotatelogs.Option
+	if config.MaxHistoryDays != nil {
+		options = append(options, rotatelogs.WithMaxAge(time.Duration(*config.MaxHistoryDays)*24*time.Hour))
+	} else {
+		options = append(options, rotatelogs.WithMaxAge(7*24*time.Hour))
+	}
 	
 	// 控制台输出
 	cores = append(cores, zapcore.NewCore(makeEncoder(true), zapcore.Lock(os.Stderr), zapcore.DebugLevel))
-
+	
 	// 单独设置 console 的日志文件
 	if config.EnableConsole && len(config.ConsoleFile) > 0 {
-		logs, _ := rotatelogs.New(strings.Replace(config.ConsoleFile, ".log", "", -1) + "-%Y%m%d.log")
+		logs, _ := rotatelogs.New(strings.Replace(config.ConsoleFile, ".log", "", -1)+"-%Y%m%d.log", options...)
 		level := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
 			return lvl >= zapcore.DebugLevel
 		})
 		core := zapcore.NewCore(makeEncoder(true), zapcore.AddSync(logs), level)
 		cores = append(cores, core)
 	}
-
+	
 	// 循环 map 设置日志文件
 	for key, val := range config.FileLevelConfig {
-		logs, _ := rotatelogs.New(strings.Replace(val, ".log", "", -1) + "-%Y%m%d.log")
+		logs, _ := rotatelogs.New(strings.Replace(val, ".log", "", -1)+"-%Y%m%d.log", options...)
 		writer := zapcore.AddSync(logs)
 		zapLevel := getZapLevel(strings.ToLower(key))
 		level := zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
@@ -110,7 +127,7 @@ func NewLogger(config *LoggerConfiguration) *Logger {
 		core := zapcore.NewCore(makeEncoder(true), writer, level)
 		cores = append(cores, core)
 	}
-
+	
 	// if config.EnableFile {
 	// 	writer := zapcore.AddSync(&lumberjack.Logger{
 	// 		Filename: config.FileLocation,
@@ -120,7 +137,7 @@ func NewLogger(config *LoggerConfiguration) *Logger {
 	// 	core := zapcore.NewCore(makeEncoder(config.FileJson), writer, logger.fileLevel)
 	// 	cores = append(cores, core)
 	// }
-
+	
 	combinedCore := zapcore.NewTee(cores...)
 	logger.zap = zap.New(combinedCore,
 		zap.AddCaller(),
